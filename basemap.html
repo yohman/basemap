@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Basemap Library</title>
+	<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+	<style>
+		body { margin: 0; padding: 0; font-family: sans-serif; }
+		#app-container { display: flex; height: 100vh; }
+		#sidebar {
+			width: 350px;
+			background: #222222; /* Darkest gray for sidebar background */
+			padding: 15px;
+			overflow-y: auto;
+			border-right: 1px solid #444444; /* Slightly lighter gray for border */
+			color: #e0e0e0; /* Light gray text for sidebar general text */
+		}
+		#map-container { flex-grow: 1; position: relative; }
+		#map { position: absolute; top: 0; bottom: 0; width: 100%; }
+		.basemap-card {
+			padding: 10px;
+			margin-bottom: 8px;
+			background: #333333; /* Dark gray for card background */
+			border: 1px solid #555555; /* Medium-dark gray for card border */
+			border-radius: 4px;
+			cursor: pointer;
+			transition: background-color 0.2s;
+			color: #cccccc; /* Light gray text for cards */
+		}
+		.basemap-card:hover { background-color: #444444; /* Slightly lighter gray on hover */ }
+		.basemap-card.active {
+			background-color: #555555; /* Medium gray for active card */
+			color: #ffffff; /* White text for active card */
+			border-color: #777777; /* Lighter border for active card */
+		}
+		.code-snippet-container {
+			margin-top: 10px;
+			padding: 8px;
+			background-color: #1c1c1c; /* Even darker for code background */
+			color: #f0f0f0; 
+			border-radius: 4px;
+			overflow-x: auto; 
+		}
+		.code-snippet-container pre {
+			margin: 0;
+			white-space: pre-wrap; /* Wrap long lines */
+			word-break: break-all;
+		}
+		.toggle-code-link {
+			display: block;
+			margin-top: 5px;
+			font-size: 0.9em;
+			color: #8ab4f8; /* A light blue, stands out on dark gray */
+			text-decoration: underline;
+			cursor: pointer;
+			display: none; /* Hidden by default */
+		}
+		.basemap-card.active .toggle-code-link { 
+			color: #bbdefb; /* Lighter blue for active card */
+			display: block; /* Visible only on active card */
+		}
+		.basemap-card .note-span-class { /* Default note color on dark card */
+			 color: #aaaaaa; 
+		}
+		.basemap-card.active .note-span-class { 
+			 color: #dddddd; /* Lighter note color for active card */
+		}
+
+		.section-header {
+			padding: 10px 5px;
+			background-color: #3a3a3a;
+			color: #f0f0f0;
+			cursor: pointer;
+			margin-top: 10px;
+			border-radius: 3px;
+			font-weight: bold;
+			display: flex; /* For positioning title and arrow */
+			justify-content: space-between; /* Pushes title and arrow apart */
+			align-items: center; /* Vertically aligns title and arrow */
+			border: 1px solid #4f4f4f; /* Slightly more prominent border */
+			margin-bottom: 5px; /* Gap between section headers */
+		}
+		.section-header:first-child {
+			margin-top: 0;
+		}
+		.section-toggle-arrow {
+			margin-right: 5px; /* Space from the right edge */
+			font-size: 0.8em; /* Smaller arrow */
+		}
+		.section-content {
+			padding-left: 10px; /* Indent cards within a section */
+			/* max-height: 0; */ /* For transition, if desired, but display none/block is simpler */
+			overflow: hidden;
+			display: none; /* Collapsed by default */
+		}
+		.section-content.expanded {
+			/* max-height: 1000px; */ /* Large enough to show content */
+			display: block; /* Expanded */
+		}
+
+		h2 { 
+			margin-top: 0; 
+			font-size: 1.2em; 
+			color: #ffffff; /* White for the main sidebar title */
+		}
+	</style>
+</head>
+<body>
+	<div id="app-container">
+		<div id="sidebar">
+			<img src="me.png" alt="Logo" style="width:60px; display:block; margin-bottom:10px;">
+			<h2>Basemap Library</h2>
+			<p style="color: #e0e0e0; font-size: 0.9em;">日本で利用可能なタイル基盤地図とMapLibre GL JSのサンプルコードです。</p>
+			
+			<p style="color: #e0e0e0; font-size: 0.9em;">
+				<a href="https://github.com/yohman/25-2-GIS/blob/main/labs/lab7_basemaps.md" style="color: #8ab4f8; text-decoration: underline;" target="_blank">使い方はこちら ➡</a>
+			</p>
+			
+			<div id="basemap-list">
+				<!-- Basemap cards will be injected here by JavaScript -->
+			</div>
+		</div>
+		<div id="map-container">
+			<div id="map"></div>
+		</div>
+	</div>
+
+	<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+	<script>
+		const defaultInitialLat = 35.605; // Default Chiba City coordinates
+		const defaultInitialLon = 140.123;
+		const defaultInitialZoom = 10;
+		const defaultInitialBasemapId = 'esri-world-imagery';
+
+		function getUrlParams() {
+			const params = new URLSearchParams(window.location.search);
+			return {
+				lat: params.get('lat') ? parseFloat(params.get('lat')) : null,
+				lon: params.get('lon') ? parseFloat(params.get('lon')) : null,
+				zoom: params.get('zoom') ? parseFloat(params.get('zoom')) : null,
+				basemap: params.get('basemap') // Returns string or null
+			};
+		}
+
+		function updateUrlParams(lat, lon, zoom, basemapId) {
+			const url = new URL(window.location);
+			url.searchParams.set('lat', lat.toFixed(5));
+			url.searchParams.set('lon', lon.toFixed(5));
+			url.searchParams.set('zoom', zoom.toFixed(2));
+			url.searchParams.set('basemap', basemapId);
+			window.history.replaceState({}, '', url);
+		}
+
+		const urlParams = getUrlParams();
+		const currentInitialLat = urlParams.lat !== null ? urlParams.lat : defaultInitialLat;
+		const currentInitialLon = urlParams.lon !== null ? urlParams.lon : defaultInitialLon;
+		const currentInitialZoom = urlParams.zoom !== null ? urlParams.zoom : defaultInitialZoom;
+		let currentActiveBasemapId = urlParams.basemap || defaultInitialBasemapId;
+
+		function generateCodeSnippetString(basemapStyleObjectOrUrl, centerArray, zoomLevel) {
+			let styleString;
+			if (typeof basemapStyleObjectOrUrl === 'string') {
+				styleString = `'${basemapStyleObjectOrUrl}'`;
+			} else {
+				// Convert style object to a string, pretty-printed
+				styleString = JSON.stringify(basemapStyleObjectOrUrl, null, 4)
+								 .replace(/"([^"]+)":/g, '$1:'); // Remove quotes from keys for a more JS-like look
+			}
+			return `const map = new maplibregl.Map({
+	container: 'map', // ID of your map container
+	style: ${styleString},
+	center: [${centerArray[0]}, ${centerArray[1]}],
+	zoom: ${zoomLevel}
+});`;
+		}
+
+		const basemaps = [
+			{
+				id: 'esri-world-imagery',
+				name: 'Today',
+				group: 'Esri',
+				note: 'Tiles &copy; Esri — Source: Esri, Earthstar Geographics. Free to use for non-commercial applications with attribution.',
+				style: {
+					version: 8,
+					sources: {
+						'esri-world-imagery': {
+							type: 'raster',
+							tiles: [
+								'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+							],
+							tileSize: 256,
+							attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, Earthstar Geographics',
+							maxzoom: 19
+						}
+					},
+					layers: [{
+						id: 'esri-world-imagery-layer',
+						type: 'raster',
+						source: 'esri-world-imagery'
+					}]
+				}
+			},
+			{
+				id: 'osm',
+				name: 'OpenStreetMap',
+				group: 'OpenStreetMap',
+				url: 'https://www.openstreetmap.org/copyright',
+				style: {
+					version: 8,
+					sources: {
+						'osm': {
+							'type': 'raster',
+							'tiles': [
+								'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+								'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+								'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+							],
+							'tileSize': 256,
+							'attribution': '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+						}
+					},
+					layers: [{
+						'id': 'osm-layer',
+						'type': 'raster',
+						'source': 'osm'
+					}]
+				}
+			},
+			{
+				id: 'carto-positron',
+				name: 'CartoDB Positron',
+				group: 'CartoDB',
+				style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
+			},
+			{
+				id: 'carto-dark-matter',
+				name: 'CartoDB Dark Matter',
+				group: 'CartoDB',
+				style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+			},
+			{
+				id: 'stamen-toner-lite',
+				name: 'Stamen Toner Lite',
+				group: 'Stamen',
+				style: {
+					version: 8,
+					sources: {
+						'stamen-toner-lite': {
+							type: 'raster',
+							tiles: ['https://tiles.stadiamaps.com/tiles/stamen_toner_lite/{z}/{x}/{y}.png'],
+							tileSize: 256,
+							attribution: '&copy; <a href="https://www.stamen.com/" target="_blank">Stamen Design</a>, &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors &copy; <a href="https://stadiamaps.com/" target="_blank">Stadia Maps</a>'
+						}
+					},
+					layers: [{ id: 'stamen-toner-lite-layer', type: 'raster', source: 'stamen-toner-lite', minzoom: 0, maxzoom: 22 }]
+				}
+			},
+			{
+				id: 'stamen-terrain',
+				name: 'Stamen Terrain',
+				group: 'Stamen',
+				style: {
+					version: 8,
+					sources: {
+						'stamen-terrain': {
+							type: 'raster',
+							tiles: ['https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.png'],
+							tileSize: 256,
+							attribution: '&copy; <a href="https://www.stamen.com/" target="_blank">Stamen Design</a>, &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors &copy; <a href="https://stadiamaps.com/" target="_blank">Stadia Maps</a>'
+						}
+					},
+					layers: [{ id: 'stamen-terrain-layer', type: 'raster', source: 'stamen-terrain', minzoom: 0, maxzoom: 22 }]
+				}
+			},
+			{
+				id: 'stamen-watercolor',
+				name: 'Stamen Watercolor',
+				group: 'Stamen',
+				style: {
+					version: 8,
+					sources: {
+						'stamen-watercolor': {
+							type: 'raster',
+							tiles: ['https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.jpg'],
+							tileSize: 256,
+							attribution: '&copy; <a href="https://www.stamen.com/" target="_blank">Stamen Design</a>, &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors &copy; <a href="https://stadiamaps.com/" target="_blank">Stadia Maps</a>'
+						}
+					},
+					layers: [{ id: 'stamen-watercolor-layer', type: 'raster', source: 'stamen-watercolor', minzoom: 0, maxzoom: 22 }]
+				}
+			},
+			// MIERUNE Layers
+			{
+				id: 'mierune-standard',
+				name: 'MIERUNE Standard',
+				group: 'MIERUNE',
+				style: {
+					version: 8,
+					sources: { 
+						'mierune-standard': { 
+							type: 'raster', 
+							tiles: ['https://tile.mierune.co.jp/mierune/{z}/{x}/{y}.png'], 
+							tileSize: 256, 
+							attribution: 'Maptiles by <a href="https://mierune.co.jp/" target="_blank">MIERUNE</a>, under CC BY. Data by <a href="https://osm.org/copyright" target="_blank">OpenStreetMap</a> contributors, under ODbL.',
+							maxzoom: 18 
+						}
+					},
+					layers: [{ id: 'mierune-standard-layer', type: 'raster', source: 'mierune-standard' }]
+				}
+			},
+			{
+				id: 'mierune-mono',
+				name: 'MIERUNE Mono',
+				group: 'MIERUNE',
+				style: {
+					version: 8,
+					sources: { 
+						'mierune-mono': { 
+							type: 'raster', 
+							tiles: ['https://tile.mierune.co.jp/mierune_mono/{z}/{x}/{y}.png'], 
+							tileSize: 256, 
+							attribution: 'Maptiles by <a href="https://mierune.co.jp/" target="_blank">MIERUNE</a>, under CC BY. Data by <a href="https://osm.org/copyright" target="_blank">OpenStreetMap</a> contributors, under ODbL.',
+							maxzoom: 18
+						}
+					},
+					layers: [{ id: 'mierune-mono-layer', type: 'raster', source: 'mierune-mono' }]
+				}
+			},
+			// GSI Layers
+			{
+				id: 'gsi-std',
+				name: '国土地理院（GSI） 標準地図',
+				group: 'GSI',
+				style: {
+					version: 8,
+					sources: { 'gsi-std': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-std-layer', type: 'raster', source: 'gsi-std', minzoom: 0, maxzoom: 18 }]
+				}
+			},
+			{
+				id: 'gsi-english',
+				name: '国土地理院（GSI） 標準地図（英語）',
+				group: 'GSI',
+				style: {
+					version: 8,
+					sources: { 'gsi-english': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/english/{z}/{x}/{y}.png'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-english-layer', type: 'raster', source: 'gsi-english', minzoom: 0, maxzoom: 18 }]
+				}
+			},
+			{
+				id: 'gsi-pale', // Moved GSI Pale here to group with other GSI maps
+				name: '国土地理院（GSI） 淡色地図',
+				group: 'GSI',
+				style: {
+					version: 8,
+					sources: { 'gsi-pale': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-pale-layer', type: 'raster', source: 'gsi-pale', minzoom: 0, maxzoom: 18 }]
+				}
+			},
+			{
+				id: 'gsi-blank',
+				name: '国土地理院（GSI） 白地図',
+				group: 'GSI',
+				style: {
+					version: 8,
+					sources: { 'gsi-blank': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-blank-layer', type: 'raster', source: 'gsi-blank', minzoom: 0, maxzoom: 18 }]
+				}
+			},
+			{
+				id: 'gsi-lum200k',
+				name: '国土地理院（GSI） 土地利用図',
+				group: 'GSI',
+				style: {
+					version: 8,
+					sources: { 'gsi-lum200k': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/lum200k/{z}/{x}/{y}.png'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-lum200k-layer', type: 'raster', source: 'gsi-lum200k', minzoom: 0, maxzoom: 18 }] // Adjust maxzoom as appropriate
+				}
+			},
+			{
+				id: 'gsi-ort-old10',
+				name: '国土地理院（GSI） 航空写真 (1961-1969)',
+				group: 'GSI',
+				note: 'Coverage may be limited.',
+				style: {
+					version: 8,
+					sources: { 'gsi-ort-old10': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/ort_old10/{z}/{x}/{y}.png'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-ort-old10-layer', type: 'raster', source: 'gsi-ort-old10', minzoom: 0, maxzoom: 17 }]
+				}
+			},
+			{
+				id: 'gsi-gazo1',
+				name: '国土地理院（GSI） 航空写真 (1974-1978)',
+				group: 'GSI',
+				note: 'Coverage may be limited. JPG format.',
+				style: {
+					version: 8,
+					sources: { 'gsi-gazo1': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/gazo1/{z}/{x}/{y}.jpg'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-gazo1-layer', type: 'raster', source: 'gsi-gazo1', minzoom: 0, maxzoom: 17 }]
+				}
+			},
+			{
+				id: 'gsi-gazo2',
+				name: '国土地理院（GSI） 航空写真 (1979-1983)',
+				group: 'GSI',
+				note: 'Coverage may be limited. JPG format.',
+				style: {
+					version: 8,
+					sources: { 'gsi-gazo2': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/gazo2/{z}/{x}/{y}.jpg'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-gazo2-layer', type: 'raster', source: 'gsi-gazo2', minzoom: 0, maxzoom: 17 }]
+				}
+			},
+			 {
+				id: 'gsi-gazo3',
+				name: '国土地理院（GSI） 航空写真 (1984-1986)',
+				group: 'GSI',
+				note: 'Coverage may be limited. JPG format.',
+				style: {
+					version: 8,
+					sources: { 'gsi-gazo3': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/gazo3/{z}/{x}/{y}.jpg'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-gazo3-layer', type: 'raster', source: 'gsi-gazo3', minzoom: 0, maxzoom: 17 }]
+				}
+			},
+			{
+				id: 'gsi-gazo4',
+				name: '国土地理院（GSI） 航空写真 (1987-1990)',
+				group: 'GSI',
+				note: 'Coverage may be limited. JPG format.',
+				style: {
+					version: 8,
+					sources: { 'gsi-gazo4': { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/gazo4/{z}/{x}/{y}.jpg'], tileSize: 256, attribution: '地理院タイル &copy; <a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>' }},
+					layers: [{ id: 'gsi-gazo4-layer', type: 'raster', source: 'gsi-gazo4', minzoom: 0, maxzoom: 17 }]
+				}
+			},
+			// Google Maps Layers
+			{
+				id: 'google-maps-standard',
+				name: 'Google Maps (Standard)',
+				group: 'Google',
+				note: 'Usage may be subject to Google Maps Platform Terms of Service.',
+				style: {
+					version: 8,
+					sources: { 'google-maps-standard': { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'], tileSize: 256, attribution: 'Map data &copy; <a href="https://www.google.com/intl/en_us/help/terms_maps/" target="_blank">Google</a>', maxzoom: 21 }},
+					layers: [{ id: 'google-maps-standard-layer', type: 'raster', source: 'google-maps-standard' }]
+				}
+			},
+			{
+				id: 'google-satellite',
+				name: 'Google Satellite',
+				group: 'Google',
+				note: 'Usage may be subject to Google Maps Platform Terms of Service.',
+				style: {
+					version: 8,
+					sources: { 'google-satellite': { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'], tileSize: 256, attribution: 'Map data &copy; <a href="https://www.google.com/intl/en_us/help/terms_maps/" target="_blank">Google</a>', maxzoom: 21 }},
+					layers: [{ id: 'google-satellite-layer', type: 'raster', source: 'google-satellite' }]
+				}
+			},
+			{
+				id: 'google-satellite-hybrid',
+				name: 'Google Satellite Hybrid',
+				group: 'Google',
+				note: 'Usage may be subject to Google Maps Platform Terms of Service.',
+				style: {
+					version: 8,
+					sources: { 'google-satellite-hybrid': { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'], tileSize: 256, attribution: 'Map data &copy; <a href="https://www.google.com/intl/en_us/help/terms_maps/" target="_blank">Google</a>', maxzoom: 21 }},
+					layers: [{ id: 'google-satellite-hybrid-layer', type: 'raster', source: 'google-satellite-hybrid' }]
+				}
+			},
+			{
+				id: 'google-roads',
+				name: 'Google Roads',
+				group: 'Google',
+				note: 'Usage may be subject to Google Maps Platform Terms of Service.',
+				style: {
+					version: 8,
+					sources: { 'google-roads': { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}'], tileSize: 256, attribution: 'Map data &copy; <a href="https://www.google.com/intl/en_us/help/terms_maps/" target="_blank">Google</a>', maxzoom: 21 }},
+					layers: [{ id: 'google-roads-layer', type: 'raster', source: 'google-roads' }]
+				}
+			},
+			{
+				id: 'google-streets', // Note: 'lyrs=r' is often similar to 'lyrs=m' or a focused road view.
+				name: 'Google Streets',
+				group: 'Google',
+				note: 'Usage may be subject to Google Maps Platform Terms of Service.',
+				style: {
+					version: 8,
+					sources: { 'google-streets': { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=r&x={x}&y={y}&z={z}'], tileSize: 256, attribution: 'Map data &copy; <a href="https://www.google.com/intl/en_us/help/terms_maps/" target="_blank">Google</a>', maxzoom: 21 }},
+					layers: [{ id: 'google-streets-layer', type: 'raster', source: 'google-streets' }]
+				}
+			}
+		].map(bm => ({ ...bm, code: generateCodeSnippetString(bm.style, [currentInitialLon, currentInitialLat], currentInitialZoom) }));
+
+		const map = new maplibregl.Map({
+			container: 'map',
+			style: basemaps.find(b => b.id === currentActiveBasemapId).style, 
+			center: [currentInitialLon, currentInitialLat],
+			zoom: currentInitialZoom,
+			attributionControl: false // Disable the default attribution control
+		});
+		
+		map.once('idle', () => { // Set initial URL after map is fully loaded
+			const center = map.getCenter();
+			updateUrlParams(center.lat, center.lng, map.getZoom(), currentActiveBasemapId);
+		});
+
+		map.on('moveend', () => {
+			const center = map.getCenter();
+			updateUrlParams(center.lat, center.lng, map.getZoom(), currentActiveBasemapId);
+		});
+
+		map.addControl(new maplibregl.NavigationControl(), 'top-right');
+		map.addControl(new maplibregl.ScaleControl());
+		
+		// Dynamically create attribution control to update with style changes
+		let attributionControl = new maplibregl.AttributionControl({ compact: false });
+		map.addControl(attributionControl, 'bottom-right');
+
+
+		const basemapListDiv = document.getElementById('basemap-list');
+		const groupOrder = ['Esri', 'OpenStreetMap','GSI', 'Google', 'CartoDB', 'Stamen', 'MIERUNE']; // Define the order of groups, now includes Esri and OpenStreetMap
+		const groupedBasemaps = {};
+
+		// Group basemaps by their 'group' property
+		basemaps.forEach(bm => {
+			if (!groupedBasemaps[bm.group]) {
+				groupedBasemaps[bm.group] = [];
+			}
+			groupedBasemaps[bm.group].push(bm);
+		});
+
+		groupOrder.forEach(groupName => {
+			if (groupedBasemaps[groupName]) {
+				const sectionContainer = document.createElement('div');
+				sectionContainer.className = 'section';
+
+				const sectionHeader = document.createElement('div');
+				sectionHeader.className = 'section-header';
+				
+				const sectionTitle = document.createElement('span'); // Title text
+				sectionTitle.textContent = groupName === 'GSI' ? '国土地理院（GSI）' : groupName;
+				sectionHeader.appendChild(sectionTitle);
+
+				const arrowSpan = document.createElement('span'); // Arrow
+				arrowSpan.className = 'section-toggle-arrow';
+				sectionHeader.appendChild(arrowSpan);
+
+				sectionContainer.appendChild(sectionHeader);
+
+				const sectionContent = document.createElement('div');
+				sectionContent.className = 'section-content';
+				if (groupName === 'GSI') { // Expand GSI by default
+					sectionContent.classList.add('expanded');
+					arrowSpan.textContent = '▲'; // Up arrow for expanded
+				} else {
+					arrowSpan.textContent = '▼'; // Down arrow for collapsed
+				}
+				sectionContainer.appendChild(sectionContent);
+
+				sectionHeader.addEventListener('click', () => {
+					sectionContent.classList.toggle('expanded');
+					arrowSpan.textContent = sectionContent.classList.contains('expanded') ? '▲' : '▼';
+				});
+
+				groupedBasemaps[groupName].forEach(basemap => {
+					const card = document.createElement('div');
+					card.className = 'basemap-card';
+					card.dataset.basemapId = basemap.id;
+
+					const nameSpan = document.createElement('span');
+					nameSpan.textContent = basemap.name;
+					card.appendChild(nameSpan);
+
+					if (basemap.note) {
+						const noteSpan = document.createElement('small');
+						noteSpan.textContent = ` (${basemap.note})`;
+						noteSpan.style.display = 'block'; 
+						noteSpan.style.fontSize = '0.8em';
+						noteSpan.style.color = '#555'; 
+						noteSpan.classList.add('note-span-class'); // Add class for active state styling
+						card.appendChild(noteSpan);
+					}
+
+					const codeToggleLink = document.createElement('a');
+					codeToggleLink.textContent = 'Show Code Snippet';
+					codeToggleLink.className = 'toggle-code-link';
+					codeToggleLink.href = '#'; // Make it behave like a link
+
+					const codeContainer = document.createElement('div');
+					codeContainer.className = 'code-snippet-container';
+					codeContainer.style.display = 'none'; // Hidden by default
+					const pre = document.createElement('pre');
+					const codeElement = document.createElement('code');
+					pre.appendChild(codeElement);
+					codeContainer.appendChild(pre);
+					
+					card.appendChild(codeToggleLink); // Add link before the container
+					card.appendChild(codeContainer);
+
+
+					if (basemap.id === currentActiveBasemapId) { // Mark current basemap as active
+						card.classList.add('active');
+					}
+
+					codeToggleLink.addEventListener('click', (e) => {
+						e.preventDefault(); 
+						e.stopPropagation(); 
+
+						const isCurrentlyVisible = codeContainer.style.display === 'block';
+
+						// This specific link's card is already active, so we only toggle its snippet.
+						// Other snippets are handled by the card click logic.
+						if (isCurrentlyVisible) {
+							codeContainer.style.display = 'none';
+							codeToggleLink.textContent = 'Show Code Snippet';
+						} else {
+							// Hide all other code snippets before showing this one
+							document.querySelectorAll('.basemap-card .code-snippet-container').forEach(otherContainer => {
+								if (otherContainer !== codeContainer) {
+									otherContainer.style.display = 'none';
+								}
+							});
+							document.querySelectorAll('.basemap-card .toggle-code-link').forEach(otherLink => {
+								if (otherLink !== codeToggleLink && otherLink.closest('.basemap-card').querySelector('.code-snippet-container').style.display === 'none') {
+								   // Reset text for other links if their snippet is now hidden (redundant if only one can be open)
+								   // otherLink.textContent = 'Show Code Snippet';
+								}
+							});
+
+
+							const selectedBasemap = basemaps.find(b => b.id === card.dataset.basemapId);
+							if (selectedBasemap) { 
+								 codeElement.textContent = selectedBasemap.code;
+							}
+							codeContainer.style.display = 'block';
+							codeToggleLink.textContent = 'Hide Code Snippet';
+						}
+					});
+
+					card.addEventListener('click', () => {
+						const selectedBasemap = basemaps.find(b => b.id === card.dataset.basemapId);
+						if (selectedBasemap) {
+							currentActiveBasemapId = selectedBasemap.id; // Update global active basemap ID
+
+							const center = map.getCenter();
+							const zoom = map.getZoom();
+							const bearing = map.getBearing();
+							const pitch = map.getPitch();
+
+							map.setStyle(selectedBasemap.style);
+							
+							map.once('styledata', () => {
+								 map.setCenter(center);
+								 map.setZoom(zoom);
+								 map.setBearing(bearing);
+								 map.setPitch(pitch);
+							});
+
+							// Update active card styling and link visibility
+							document.querySelectorAll('.basemap-card').forEach(c => {
+								c.classList.remove('active');
+								const otherCodeContainer = c.querySelector('.code-snippet-container');
+								const otherToggleLink = c.querySelector('.toggle-code-link');
+								
+								// Hide snippet and link if not the clicked card
+								if (c !== card) {
+									if (otherCodeContainer) otherCodeContainer.style.display = 'none';
+									if (otherToggleLink) {
+										// otherToggleLink.style.display = 'none'; // CSS handles this via .active
+										otherToggleLink.textContent = 'Show Code Snippet';
+									}
+								}
+							});
+							card.classList.add('active');
+							// The CSS will now show the link for the active card.
+							// If the snippet for this card was already open and it's re-clicked, it remains open.
+							// If another card's snippet was open, it's now hidden by the loop above.
+							// map.on('moveend') will handle updating the URL.
+						}
+					});
+					// basemapListDiv.appendChild(card); // Append card to section content instead
+					sectionContent.appendChild(card);
+				});
+				basemapListDiv.appendChild(sectionContainer); // Append the whole section to the list
+			}
+		});
+
+	</script>
+</body>
+</html>
